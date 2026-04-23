@@ -190,6 +190,7 @@ nano ~/keep-alive.sh
 #!/bin/bash
 # 每天凌晨慢跑 90 分鐘 (5400秒)，確保 CPU 佔用突破 5% 時間門檻
 # --threads=1 讓 AMD Micro 的總 CPU 使用率維持在 ~50%，同時保留效能給 Ghost
+# 90 分鐘 × 60 秒 = 5400 秒
 timeout 5400s sysbench cpu --cpu-max-prime=20000 --threads=1 --time=0 run > /dev/null 2>&1
 ```
 *(按 `Ctrl+O` 存檔，`Enter` 確認，`Ctrl+X` 離開)*
