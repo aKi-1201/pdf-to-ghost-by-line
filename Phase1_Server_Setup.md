@@ -142,3 +142,84 @@ ghost install
 **完工！**
 * 網站前台：`https://laiwei.duckdns.org`
 * 管理後台：`https://laiwei.duckdns.org/ghost`
+
+---
+
+## 9. 徹底清除 Docker 記憶體佔用 (強烈建議)
+Oracle Free Tier 的 1GB RAM 非常寶貴。若系統已安裝 Docker，其常駐服務 (`dockerd`, `containerd`) 會持續消耗約 7% 的記憶體。若不需要 Docker，請執行以下指令徹底移除，將記憶體還給 Ghost 與 MySQL：
+
+```bash
+# 停止相關服務
+sudo systemctl stop docker docker.socket containerd
+
+# 禁止開機自動啟動
+sudo systemctl disable docker docker.socket containerd
+
+# 移除套件與殘留設定
+sudo apt-get purge docker.io containerd runc -y
+
+# 清除不再需要的相依套件
+sudo apt-get autoremove -y
+```
+
+---
+
+## 10. 破解 Oracle「閒置回收政策」保命腳本 🛡️
+
+### Oracle 判定「閒置」的標準 (新版)
+Oracle 會在連續 7 天內，**同時滿足以下所有條件**時，判定虛擬機閒置並執行停機或回收：
+* **95% 位的 CPU 使用率低於 20%**（意即：必須有超過 5% 的時間，CPU 佔用率大於 20%，才算及格）
+* **網路使用率低於 20%**
+
+> ⚠️ **數學陷阱**：「5% 的時間」換算下來，表示每天必須讓 CPU 超過 20% **至少約 72 分鐘**，才能拉高 95% 位的數值。
+
+### 針對 AMD Micro (VM.Standard.E2.1.Micro) 的最佳策略
+本機為 2 核心 (1 OCPU)，使用 1 個執行緒的 `sysbench` 剛好佔滿 1 顆核心，使總 CPU 使用率穩定維持在 **50%**，既能突破 20% 門檻，又保留另一顆核心給 Ghost 與 MySQL 正常運作。
+
+**1. 安裝 sysbench**
+```bash
+sudo apt-get install sysbench -y
+```
+
+**2. 建立保活腳本**
+```bash
+nano ~/keep-alive.sh
+```
+貼上以下內容：
+```bash
+#!/bin/bash
+# 每天凌晨慢跑 90 分鐘 (5400秒)，確保 CPU 佔用突破 5% 時間門檻
+# --threads=1 讓 AMD Micro 的總 CPU 使用率維持在 ~50%，同時保留效能給 Ghost
+# 90 分鐘 × 60 秒 = 5400 秒
+timeout 5400s sysbench cpu --cpu-max-prime=20000 --threads=1 --time=0 run > /dev/null 2>&1
+```
+*(按 `Ctrl+O` 存檔，`Enter` 確認，`Ctrl+X` 離開)*
+
+**3. 賦予執行權限**
+```bash
+chmod +x ~/keep-alive.sh
+```
+
+**4. 設定 Crontab 排程**
+```bash
+crontab -e
+```
+在最後一行加入（每天凌晨 3 點自動執行）：
+```
+0 3 * * * /home/ubuntu/keep-alive.sh
+```
+
+**5. 手動測試驗證**
+```bash
+# 在背景執行腳本
+./keep-alive.sh &
+
+# 立即用 top 觀察 CPU 是否飆升至 ~50%
+top
+# (進入 top 後按 1 展開所有核心，按 q 離開)
+
+# 測試完畢後，手動停止
+killall sysbench
+```
+
+> 💡 `--cpu-max-prime=20000` 的作用：要求 CPU 反覆計算 1~20000 以內的所有質數，是一種穩定消耗 CPU 運算力的純數學運算，不影響記憶體。
